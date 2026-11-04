@@ -62,10 +62,33 @@ public class GitInitialize {
             git.addEntry("Hello.txt");
             git.addEntry("testFolder/file1.txt");
             git.addEntry("testFolder/file2.txt");
+            git.addEntry("Hello.txt");
             ArrayList<String> workingList = new ArrayList<>();
             workingList.add("blob 0a4d55a8d778e5022fab701977c5d840bbc486d0 Hello.txt");
             workingList.add("blob 31a160541e2078032acad6161a920951e50b5747 testFolder/file1.txt");
             workingList.add("blob ac182d3f19d9029668a47967a42029fb874c861f testFolder/file2.txt");
+
+            String rootHash = git.getRootTree();
+
+            System.out.println("\n=== Verifying Root Tree ===");
+
+            boolean valid = git.verifyTree(rootHash, "");
+
+            if (valid) {
+                System.out.println("\nRoot tree verified successfully!");
+            } else {
+                System.out.println("\nRoot tree verification failed.");
+            }
+
+            System.out.println("\n=== Verifying Snapshot ===");
+
+            boolean snapshotValid = git.verifySnapshot(rootHash);
+
+            if (valid && snapshotValid) {
+                System.out.println("\nGP-4.1 verification passed!");
+            } else {
+                System.out.println("\nGP-4.1 verification failed.");
+            }
         } catch (IOException e) {
             System.out.println("Hashing Error: " + e);
         }
@@ -168,9 +191,11 @@ public class GitInitialize {
         return workingList;
     }
 
-    // 3.2 (but changed in 3.3) - takes a directory path and creates a tree of its direct
+    // 3.2 (but changed in 3.3) - takes a directory path and creates a tree of its
+    // direct
     // descendants
-    // note that this was tested when i made it in 3.2 but didn't have a chance to test the new
+    // note that this was tested when i made it in 3.2 but didn't have a chance to
+    // test the new
     // version sorry
     public String createTree(ArrayList<String> workingList, String dirPath) throws IOException {
         ArrayList<String> trees = new ArrayList<>();
@@ -210,10 +235,8 @@ public class GitInitialize {
         }
         for (int i = 0; i < workingList.size(); i++) {
             for (int j = i + 1; j < workingList.size(); j++) {
-                String lineOne =
-                        workingList.get(i).substring(workingList.get(i).lastIndexOf(' ') + 1);
-                String lineTwo =
-                        workingList.get(j).substring(workingList.get(j).lastIndexOf(' ') + 1);
+                String lineOne = workingList.get(i).substring(workingList.get(i).lastIndexOf(' ') + 1);
+                String lineTwo = workingList.get(j).substring(workingList.get(j).lastIndexOf(' ') + 1);
                 if (slashes(lineOne) < slashes(lineTwo)) {
                     String tempSave = workingList.get(i);
                     workingList.set(i, workingList.get(j));
@@ -230,7 +253,8 @@ public class GitInitialize {
         return workingList;
     }
 
-    // 3.3 - this is the recursive method that does everything: it takes the deepest directory and
+    // 3.3 - this is the recursive method that does everything: it takes the deepest
+    // directory and
     // builds up trees from there until there is only one root tree
     public String compressWorkingList(ArrayList<String> workingList) throws IOException {
         String dirPath = findLeafMostDirectory(workingList);
@@ -244,7 +268,8 @@ public class GitInitialize {
         return compressWorkingList(workingList);
     }
 
-    // helper methods that are explicitly (or at least basically) mentioned in the instructions
+    // helper methods that are explicitly (or at least basically) mentioned in the
+    // instructions
 
     // 3.3 - finds the deepest directory
     public String findLeafMostDirectory(ArrayList<String> workingList) {
@@ -262,7 +287,8 @@ public class GitInitialize {
         return deepestDir;
     }
 
-    // 3.3 - condenses working list to just have the tree already made vs multiple blobs
+    // 3.3 - condenses working list to just have the tree already made vs multiple
+    // blobs
     public void collapseWorkingList(ArrayList<String> workingList, String dirPath,
             String treeHash) {
         for (int i = workingList.size() - 1; i >= 0; i--) {
@@ -274,7 +300,6 @@ public class GitInitialize {
         }
         workingList.add("tree " + treeHash + " " + dirPath);
     }
-
 
     // extra helper methods
     // variation of hashFile that just uses content
@@ -310,7 +335,192 @@ public class GitInitialize {
         return path.substring(0, slash);
     }
 
+    // this method reads index, builds the directory trees, and returns the root
+    // tree's hash
+    public String getRootTree() throws IOException {
+        ArrayList<String> workingList = createWorkingList(index);
 
+        if (workingList.isEmpty()) {
+            throw new IOException("Index is empty");
+        }
+
+        sortWorkingList(workingList);
+
+        String rootHash = compressWorkingList(workingList);
+
+        System.out.println("Root tree hash: " + rootHash);
+
+        return rootHash;
+    }
+
+    // This method checks that:
+    // Every referenced tree and blob exists in git/objects/.
+    // Every stored object's contents match its SHA-1 hash.
+    // Every nested tree is recursively checked.
+    // Invalid entries are reported.
+    public boolean verifyTree(String treeHash, String path)
+            throws IOException {
+
+        File treeFile = new File(objects, treeHash);
+
+        if (!treeFile.exists()) {
+            System.out.println("Missing tree: " + path);
+            return false;
+        }
+
+        String contents = Files.readString(treeFile.toPath());
+
+        if (!hashContent(contents).equals(treeHash)) {
+            System.out.println("Incorrect tree hash: " + path);
+            return false;
+        }
+
+        boolean valid = true;
+
+        for (String line : contents.split("\n")) {
+
+            if (line.isEmpty()) {
+                continue;
+            }
+
+            String[] parts = line.split(" ", 3);
+
+            if (parts.length != 3) {
+                System.out.println("Invalid entry: " + line);
+                valid = false;
+                continue;
+            }
+
+            String type = parts[0];
+            String hash = parts[1];
+            String name = parts[2];
+
+            String fullPath = "";
+
+            if (path.isEmpty()) {
+                fullPath = name;
+            } else {
+                fullPath = path + "/" + name;
+            }
+
+            File objectFile = new File(objects, hash);
+
+            if (!objectFile.exists()) {
+                System.out.println("Missing object: " + fullPath);
+                valid = false;
+                continue;
+            }
+
+            if (type.equals("tree")) {
+
+                System.out.println("TREE: " + fullPath);
+
+                if (!verifyTree(hash, fullPath)) {
+                    valid = false;
+                }
+
+            } else if (type.equals("blob")) {
+
+                String blobContents = Files.readString(objectFile.toPath());
+
+                if (hashContent(blobContents).equals(hash)) {
+                    System.out.println("BLOB: " + fullPath + " [OK]");
+                } else {
+                    System.out.println("BLOB: " + fullPath
+                            + " [INCORRECT HASH]");
+                    valid = false;
+                }
+
+            } else {
+                System.out.println("Unknown object type: " + type);
+                valid = false;
+            }
+        }
+
+        return valid;
+    }
+
+    // this method traverses the tree and gets the hash and full path of every blob
+    public void getTreeBlobs(String treeHash, String path,
+            ArrayList<String> blobs) throws IOException {
+
+        File treeFile = new File(objects, treeHash);
+        String contents = Files.readString(treeFile.toPath());
+
+        for (String line : contents.split("\n")) {
+
+            if (line.isEmpty()) {
+                continue;
+            }
+
+            String[] parts = line.split(" ", 3);
+
+            String type = parts[0];
+            String hash = parts[1];
+            String name = parts[2];
+
+            String fullPath = "";
+
+            if (path.isEmpty()) {
+                fullPath = name;
+            } else {
+                fullPath = path + "/" + name;
+            }
+
+            if (type.equals("blob")) {
+                blobs.add(hash + " " + fullPath);
+            } else if (type.equals("tree")) {
+                getTreeBlobs(hash, fullPath, blobs);
+            }
+        }
+    }
+
+    // this method compares the tree blobs with the entries in index
+    public boolean verifySnapshot(String rootHash) throws IOException {
+
+        ArrayList<String> treeBlobs = new ArrayList<>();
+        getTreeBlobs(rootHash, "", treeBlobs);
+
+        ArrayList<String> indexEntries = new ArrayList<>();
+
+        BufferedReader reader = new BufferedReader(new FileReader(index));
+
+        String line;
+
+        while ((line = reader.readLine()) != null) {
+            if (!line.isEmpty()) {
+                indexEntries.add(line);
+            }
+        }
+
+        reader.close();
+
+        boolean valid = true;
+
+        for (String entry : indexEntries) {
+
+            if (!treeBlobs.contains(entry)) {
+                System.out.println("Missing from tree: " + entry);
+                valid = false;
+            }
+        }
+
+        for (String entry : treeBlobs) {
+
+            if (!indexEntries.contains(entry)) {
+                System.out.println("Not staged in index: " + entry);
+                valid = false;
+            }
+        }
+
+        if (valid) {
+            System.out.println("Snapshot matches index!");
+        } else {
+            System.out.println("Snapshot does not match index.");
+        }
+
+        return valid;
+    }
 
     // getters and setters
     /**

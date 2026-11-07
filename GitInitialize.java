@@ -11,6 +11,8 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 
 public class GitInitialize {
 
@@ -89,6 +91,15 @@ public class GitInitialize {
             } else {
                 System.out.println("\nGP-4.1 verification failed.");
             }
+
+            System.out.println("\n=== Testing GP-4.2 ===");
+
+            String commitHash = git.commit(
+                    "Shrad",
+                    "Initial commit");
+
+            System.out.println("Commit created: " + commitHash);
+            System.out.println("HEAD: " + Files.readString(git.getHead().toPath()));
         } catch (IOException e) {
             System.out.println("Hashing Error: " + e);
         }
@@ -225,7 +236,7 @@ public class GitInitialize {
         return treeHash;
     }
 
-    // 3.3 - groups subdirectories
+    // groups subdirectories
     public static ArrayList<String> sortWorkingList(ArrayList<String> workingList) {
         for (int i = 0; i < workingList.size(); i++) {
             if (!workingList.get(i).substring(0, 5).equals("blob ")
@@ -520,6 +531,50 @@ public class GitInitialize {
         }
 
         return valid;
+    }
+
+    public String commit(String author, String message) throws IOException {
+
+        // Generate the root tree from the index
+        String rootHash = getRootTree();
+
+        // Read HEAD to determine the parent commit
+        String parentHash = Files.readString(head.toPath()).trim();
+
+        // Get the current date and time
+        LocalDateTime now = LocalDateTime.now();
+
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+        String date = now.format(formatter);
+
+        // Build the commit contents
+        String commitContent = "tree: " + rootHash + "\n";
+
+        if (!parentHash.isEmpty()) {
+            commitContent += "parent: " + parentHash + "\n";
+        }
+
+        commitContent += "author: " + author + "\n";
+        commitContent += "date: " + date + "\n";
+        commitContent += "message: " + message + "\n";
+
+        // Hash the complete commit contents
+        String commitHash = hashContent(commitContent);
+
+        // Write the commit object
+        File commitFile = new File(objects, commitHash);
+
+        FileWriter writer = new FileWriter(commitFile);
+        writer.write(commitContent);
+        writer.close();
+
+        // Update HEAD
+        FileWriter headWriter = new FileWriter(head);
+        headWriter.write(commitHash);
+        headWriter.close();
+
+        return commitHash;
     }
 
     // getters and setters
